@@ -5,18 +5,23 @@ build/
 out/
 target/
 *.class
-*.jar
 *.war
 *.ear
 *.nar
+
+# JARs (keep Gradle wrapper)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
 
 # ========================
 # Gradle
 # ========================
 .gradle/
 gradle-app.setting
-!gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
+
+# Kotlin / Gradle caches
+.kotlin/
 
 # ========================
 # IDE - IntelliJ IDEA
@@ -25,10 +30,6 @@ gradle-app.setting
 *.iws
 *.iml
 *.ipr
-.idea/modules.xml
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/shelf/
 
 # ========================
 # IDE - VS Code
@@ -46,6 +47,14 @@ gradle-app.setting
 bin/
 
 # ========================
+# IDE - NetBeans
+# ========================
+nbproject/
+nbbuild/
+dist/
+nbdist/
+
+# ========================
 # macOS
 # ========================
 .DS_Store
@@ -56,11 +65,13 @@ bin/
 .Trashes
 
 # ========================
-# Logs
+# Logs / dumps
 # ========================
 logs/
 *.log
 spring.log
+hs_err_pid*
+replay_pid*
 
 # ========================
 # Environment / Secrets
@@ -80,7 +91,8 @@ secrets/
 docker-compose.override.yml
 
 # ========================
-# Test reports
+# Test / coverage reports (local)
 # ========================
 reports/
 test-results/
+*.exec
