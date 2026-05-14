@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: vm-manager-postgres
+    environment:
+      POSTGRES_DB: vm_manager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vm-manager-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vm-manager-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: vm_manager
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: vm-manager-super-secret-key-256bits-minimum-length-required-for-hs256
+      JWT_EXPIRATION_MS: 86400000
+      SERVER_PORT: 8080
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:4200
+    ports:
+      - "8080:8080"
+    networks:
+      - vm-manager-network
+
+volumes:
+  postgres_data:
+
+networks:
+  vm-manager-network:
+    driver: bridge

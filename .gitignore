@@ -1,0 +1,86 @@
+# ========================
+# Compiled output
+# ========================
+build/
+out/
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# ========================
+# Gradle
+# ========================
+.gradle/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# ========================
+# IDE - IntelliJ IDEA
+# ========================
+.idea/
+*.iws
+*.iml
+*.ipr
+.idea/modules.xml
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+
+# ========================
+# IDE - VS Code
+# ========================
+.vscode/
+*.code-workspace
+
+# ========================
+# IDE - Eclipse
+# ========================
+.settings/
+.project
+.classpath
+.factorypath
+bin/
+
+# ========================
+# macOS
+# ========================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ========================
+# Logs
+# ========================
+logs/
+*.log
+spring.log
+
+# ========================
+# Environment / Secrets
+# ========================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
+
+# ========================
+# Docker
+# ========================
+docker-compose.override.yml
+
+# ========================
+# Test reports
+# ========================
+reports/
+test-results/

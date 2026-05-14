@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: vm-manager
+
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:vm_manager}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+      validation-query: SELECT 1
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:vm-manager-super-secret-key-256bits-minimum-length-required-for-hs256}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4200}
+  cookie:
+    # false = permite guardar la cookie JWT en http://localhost (desarrollo). En producción HTTPS usar true.
+    secure: ${APP_COOKIE_SECURE:false}
+    same-site: ${APP_COOKIE_SAMESITE:Strict}
+
+logging:
+  level:
+    com.ifx.vm_manager: DEBUG
+    org.springframework.security: INFO
+    io.r2dbc: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

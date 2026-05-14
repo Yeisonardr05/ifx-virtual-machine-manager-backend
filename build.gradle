@@ -1,0 +1,53 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.6'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.ifx'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // WebFlux - Reactive Web (includes reactive WebSocket support)
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // Spring Security - Reactive
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // R2DBC - Reactive Database Connectivity
+    implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
+    implementation 'org.postgresql:r2dbc-postgresql'
+
+    // Bean Validation
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Jackson 3.x is provided transitively by spring-boot-starter-webflux in Spring Boot 4
+
+    // JWT - JSON Web Token (JJWT 0.12.x)
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // Lombok - Code generation
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'io.projectreactor:reactor-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
