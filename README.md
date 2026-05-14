@@ -1,221 +1,163 @@
-# VM Manager Backend
+# VM Manager — Backend
 
-API RESTful reactiva para gestión de máquinas virtuales con autenticación JWT (HttpOnly Cookie) y actualizaciones en tiempo real vía WebSocket.
-
-## Stack Tecnológico
-
-| Tecnología          | Versión  | Rol                                  |
-|---------------------|----------|--------------------------------------|
-| Java                | 21       | Lenguaje                             |
-| Spring Boot         | 4.0.6    | Framework principal                  |
-| Spring WebFlux      | -        | API reactiva (RouterFunction)        |
-| Spring Security     | -        | Seguridad reactiva con JWT Cookie    |
-| Spring Data R2DBC   | -        | Acceso reactivo a base de datos      |
-| PostgreSQL          | 16       | Base de datos relacional             |
-| JJWT                | 0.12.6   | Generación y validación de JWT       |
-| Lombok              | -        | Reducción de boilerplate             |
-| Gradle              | -        | Build tool                           |
+Servicio backend **reactivo** (Spring WebFlux + R2DBC) para gestionar máquinas virtuales: API REST con **JWT en cookie HttpOnly**, roles **ADMIN / CLIENT**, eventos en tiempo real por **WebSocket**, y arquitectura **hexagonal** (puertos y adaptadores).
 
 ---
 
-## Arquitectura Hexagonal
+## Qué incluye este proyecto
 
-```
-src/main/java/com/ifx/vm_manager/
-│
-├── domain/                          ← Núcleo puro. Sin dependencias de framework.
-│   ├── model/                       ← Entidades y enums de dominio
-│   │   ├── User.java
-│   │   ├── VirtualMachine.java
-│   │   ├── Role.java
-│   │   ├── VmStatus.java
-│   │   └── VmEventType.java
-│   └── ports/
-│       ├── input/                   ← Contratos que el dominio expone (driven by infrastructure)
-│       │   ├── AuthUseCase.java
-│       │   └── VmUseCase.java
-│       └── output/                  ← Contratos que el dominio necesita (implemented by infrastructure)
-│           ├── UserRepositoryPort.java
-│           ├── VmRepositoryPort.java
-│           └── VmEventPort.java
-│
-├── application/                     ← Casos de uso. Orquesta dominio + puertos.
-│   ├── dto/
-│   │   ├── request/                 ← DTOs de entrada (validados)
-│   │   └── response/                ← DTOs de salida (inmutables)
-│   └── usecases/                    ← Implementaciones de puertos de entrada
-│       ├── AuthUseCaseImpl.java
-│       └── VmUseCaseImpl.java
-│
-└── infrastructure/                  ← Detalles técnicos. Adapta el mundo externo al dominio.
-    ├── adapters/
-    │   ├── input/
-    │   │   ├── rest/                ← RouterFunction + HandlerFunction (sin @Controller)
-    │   │   └── websocket/           ← WebSocketHandler reactivo con Sinks
-    │   └── output/
-    │       ├── persistence/         ← R2DBC entities, repositories, mappers, adapters
-    │       └── security/            ← JwtService, SecurityContextRepository
-    ├── config/                      ← SecurityConfig, WebFluxConfig, WebSocketConfig, R2dbc
-    └── exceptions/                  ← GlobalExceptionHandler (WebExceptionHandler @Order(-2))
-```
-
-### Flujo de Dependencias
-
-```
-REST/WS Handler → UseCase (port) → Repository Port (output)
-                                  → EventPort (output)
-                    ↑ implemented by ↓
-             UseCaseImpl          RepositoryAdapter / VmEventPublisher
-```
-
-La regla fundamental: **las flechas de dependencia siempre apuntan hacia adentro** (hacia el dominio).
+| Área | Detalle |
+|------|---------|
+| **API** | `RouterFunction` / `HandlerFunction` (sin controllers anotados) |
+| **Persistencia** | PostgreSQL vía **R2DBC** (sin bloqueos) |
+| **Seguridad** | Spring Security WebFlux, BCrypt, JWT leído desde cookie |
+| **Tiempo real** | WebSocket `/ws/vms` + `Sinks` para broadcast de eventos VM |
+| **Calidad** | Pruebas unitarias (JUnit 5, Mockito, Reactor Test), **JaCoCo** con umbral de cobertura en `check` |
 
 ---
 
-## Seguridad - Flujo JWT HttpOnly
+## Demo rápida
 
-```
-1. POST /login {email, password}
-   ↓
-2. AuthHandler extrae y valida el body
-   ↓
-3. AuthUseCase.authenticate() verifica credenciales con BCrypt
-   ↓
-4. JwtService.generateToken() genera el JWT (HS256)
-   ↓
-5. La respuesta incluye Set-Cookie: auth-token=<jwt>; HttpOnly; Secure; SameSite=Strict
-   ↓
-6. El cuerpo de la respuesta SOLO contiene {id, name, email, role} — sin token
-
-7. Cada request posterior incluye el cookie automáticamente (browser)
-   ↓
-8. JwtSecurityContextRepository.load() lee el cookie, valida el JWT,
-   construye el SecurityContext con roles
-   ↓
-9. Spring Security aplica las reglas de autorización por ruta
-```
-
-**Por qué HttpOnly Cookie y no localStorage:**
-- `HttpOnly` impide acceso desde JavaScript → protege contra XSS
-- `Secure` garantiza transmisión solo por HTTPS
-- `SameSite=Strict` protege contra CSRF
-
----
-
-## WebSocket - Actualización en Tiempo Real
-
-**Tecnología:** Spring WebFlux WebSocket nativo con `Sinks.Many<String>`.
-
-```
-VM creada/actualizada/eliminada
-   ↓
-VmUseCaseImpl → VmEventPort.publishVmEvent()
-   ↓ (implementado por)
-VmEventPublisher.sink.tryEmitNext(json)
-   ↓
-Todos los clientes WebSocket conectados reciben el evento
-```
-
-**Endpoint WebSocket:**
-```
-ws://localhost:8080/ws/vms
-```
-
-**Formato de mensaje:**
-```json
-{
-  "event": "VM_UPDATED",
-  "data": {
-    "id": 1,
-    "name": "my-vm",
-    "status": "RUNNING"
-  }
-}
-```
-
-**Eventos posibles:** `VM_CREATED`, `VM_UPDATED`, `VM_DELETED`, `VM_STATUS_CHANGED`
-
-**Ejemplo de conexión desde JavaScript:**
-```javascript
-const ws = new WebSocket('ws://localhost:8080/ws/vms');
-ws.onmessage = (event) => {
-  const payload = JSON.parse(event.data);
-  console.log(payload.event, payload.data);
-};
-```
-
-> **Nota arquitectónica:** Se usa WebFlux nativo en lugar de STOMP/SockJS porque STOMP requiere servidor Servlet (Tomcat). En WebFlux con Netty, la solución reactiva correcta es `WebSocketHandler` + `Sinks`.
-
----
-
-## Prerrequisitos
-
-- Java 21+
-- Docker y Docker Compose (opcional pero recomendado)
-- PostgreSQL 14+ (si no se usa Docker)
-
----
-
-## Ejecución
-
-### Opción 1: Docker Compose (recomendado)
+### 1. Levantar servicios
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
-La API estará disponible en `http://localhost:8080`.
+API: **http://localhost:8080**
 
-### Opción 2: Local con PostgreSQL externo
+*(Si prefieres solo PostgreSQL en Docker y la app en local: levanta `postgres`, crea la BD `vm_manager` y ejecuta `./gradlew bootRun`.)*
+
+### 2. Cuentas de prueba
+
+| Rol | Email | Contraseña |
+|-----|-------|-------------|
+| **ADMIN** | `admin@test.com` | `123456` |
+| **CLIENT** | `client@test.com` | `client123` |
+
+Los usuarios se cargan automáticamente la primera vez que arranca la aplicación contra una base vacía.
+
+### 3. Probar login (cookie `auth-token`)
+
+```bash
+curl -s -X POST http://localhost:8080/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{"email":"admin@test.com","password":"123456"}'
+
+curl -s http://localhost:8080/vms -b cookies.txt
+```
+
+Desde un front en otro origen (p. ej. Angular en `:4200`), usa **`withCredentials: true`** para enviar/recibir cookies.
+
+### 4. WebSocket (eventos VM)
+
+```bash
+# Ejemplo con wscat: npm i -g wscat
+wscat -c ws://localhost:8080/ws/vms
+```
+
+Al crear o modificar VMs verás mensajes JSON con `event` y `data`.
+
+---
+
+## Requisitos
+
+- **JDK 21**
+- **Docker** + Docker Compose *(recomendado para demo completa)*
+- **PostgreSQL 14+** *(solo si ejecutas la app sin Compose para la BD)*
+
+---
+
+## Cómo ejecutar
+
+### Opción A — Todo con Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+Variables útiles están en `docker-compose.yml` (`DB_*`, `JWT_*`, `CORS_ALLOWED_ORIGINS`, etc.). Para HTTPS detrás de proxy, define **`APP_COOKIE_SECURE=true`** en el servicio `app`.
+
+### Opción B — App local + PostgreSQL
 
 1. Crear base de datos:
+
 ```sql
 CREATE DATABASE vm_manager;
 ```
 
-2. Configurar variables de entorno:
+2. Variables mínimas (o usar valores por defecto de `application.yml`):
+
 ```bash
 export DB_HOST=localhost
 export DB_PORT=5432
 export DB_NAME=vm_manager
 export DB_USERNAME=postgres
 export DB_PASSWORD=postgres
-export JWT_SECRET=vm-manager-super-secret-key-256bits-minimum-length-required-for-hs256
 ```
 
-3. Ejecutar:
+3. Arrancar:
+
 ```bash
 ./gradlew bootRun
 ```
 
 ---
 
-## Variables de Entorno
+## Tests y cobertura
 
-| Variable              | Default                                            | Descripción                    |
-|-----------------------|----------------------------------------------------|--------------------------------|
-| `DB_HOST`             | `localhost`                                        | Host de PostgreSQL             |
-| `DB_PORT`             | `5432`                                             | Puerto de PostgreSQL           |
-| `DB_NAME`             | `vm_manager`                                       | Nombre de la base de datos     |
-| `DB_USERNAME`         | `postgres`                                         | Usuario de PostgreSQL          |
-| `DB_PASSWORD`         | `postgres`                                         | Contraseña de PostgreSQL       |
-| `JWT_SECRET`          | *(ver application.yml)*                            | Clave secreta JWT (≥32 chars)  |
-| `JWT_EXPIRATION_MS`   | `86400000`                                         | Expiración JWT en ms (24h)     |
-| `SERVER_PORT`         | `8080`                                             | Puerto del servidor            |
-| `CORS_ALLOWED_ORIGINS`| `http://localhost:3000,http://localhost:4200`       | Orígenes CORS permitidos       |
+El proyecto incluye **pruebas unitarias** alineadas con las capas del código:
+
+- **Dominio / aplicación:** casos de uso (`AuthUseCaseImpl`, `VmUseCaseImpl`), validación de DTOs.
+- **Infraestructura:** handlers REST, seguridad JWT, adaptadores R2DBC (con **H2** en tests), WebSocket/eventos, configuración y manejo global de errores.
+
+### Comandos
+
+```bash
+# Solo tests
+./gradlew test
+
+# Informe HTML de cobertura (tras ejecutar tests)
+./gradlew jacocoTestReport
+# → build/reports/jacoco/test/html/index.html
+
+# Pipeline de verificación del proyecto (tests + umbral JaCoCo)
+./gradlew check
+```
+
+La tarea **`check`** también ejecuta **`jacocoTestCoverageVerification`**: se exige **≥ 80 %** de líneas cubiertas; si la cobertura baja de ese valor, el build falla.
 
 ---
 
-## API Endpoints
+## Variables de entorno
+
+| Variable | Default típico | Uso |
+|----------|----------------|-----|
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | `localhost`, `5432`, `vm_manager` | Conexión PostgreSQL / R2DBC |
+| `DB_USERNAME`, `DB_PASSWORD` | `postgres` | Credenciales BD |
+| `JWT_SECRET` | *(ver `application.yml`)* | Firma HS256 del JWT |
+| `JWT_EXPIRATION_MS` | `86400000` | TTL del token (24 h) |
+| `SERVER_PORT` | `8080` | Puerto HTTP |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000`, `http://localhost:4200` | Orígenes permitidos (*credenciales*: lista explícita, no `*`) |
+| `APP_COOKIE_SECURE` | `false` | `true` en producción HTTPS: cookie solo por canal seguro |
+| `APP_COOKIE_SAMESITE` | `Strict` | Política SameSite del cookie `auth-token` |
+
+En **HTTP local**, `APP_COOKIE_SECURE=false` evita que el navegador rechace la cookie; en **producción** usa HTTPS y **`APP_COOKIE_SECURE=true`**.
+
+---
+
+## API REST (resumen)
 
 ### Autenticación
 
-| Método | Ruta      | Auth | Descripción          |
-|--------|-----------|------|----------------------|
-| POST   | `/login`  | No   | Iniciar sesión       |
-| POST   | `/logout` | No   | Cerrar sesión        |
+| Método | Ruta | Rol |
+|--------|------|-----|
+| `POST` | `/login` | Público |
+| `POST` | `/logout` | Público |
 
-**Login Request:**
+**Body login:**
+
 ```json
 {
   "email": "admin@test.com",
@@ -223,116 +165,100 @@ export JWT_SECRET=vm-manager-super-secret-key-256bits-minimum-length-required-fo
 }
 ```
 
-**Login Response (HTTP 200):**
-```json
-{
-  "id": 1,
-  "name": "Admin User",
-  "email": "admin@test.com",
-  "role": "ADMIN"
-}
-```
-El JWT se establece automáticamente en la cookie `auth-token`.
+**Respuesta 200:** `{ "id", "name", "email", "role" }` — **sin JWT en el body**. El token va en la cookie **`auth-token`** (HttpOnly).
 
----
+### VMs
 
-### Máquinas Virtuales
+| Método | Ruta | Roles |
+|--------|------|--------|
+| `POST` | `/vms` | ADMIN |
+| `GET` | `/vms` | ADMIN, CLIENT |
+| `GET` | `/vms/{id}` | ADMIN, CLIENT |
+| `PUT` | `/vms/{id}` | ADMIN |
+| `DELETE` | `/vms/{id}` | ADMIN |
 
-| Método | Ruta         | Roles         | Descripción             |
-|--------|--------------|---------------|-------------------------|
-| POST   | `/vms`       | ADMIN         | Crear VM                |
-| GET    | `/vms`       | ADMIN, CLIENT | Listar todas las VMs    |
-| GET    | `/vms/{id}`  | ADMIN, CLIENT | Obtener VM por ID       |
-| PUT    | `/vms/{id}`  | ADMIN         | Actualizar VM           |
-| DELETE | `/vms/{id}`  | ADMIN         | Eliminar VM             |
+**Crear VM (`POST /vms`):**
 
-**Create/Update VM Request:**
 ```json
 {
   "name": "web-server-01",
   "cores": 4,
-  "ram": 8192,
+  "ram": 8,
   "disk": 100,
-  "os": "Ubuntu 22.04 LTS",
-  "status": "RUNNING"
+  "os": "Ubuntu 22.04 LTS"
 }
 ```
 
-**VM Response:**
-```json
-{
-  "success": true,
-  "message": "VM created successfully",
-  "data": {
-    "id": 1,
-    "name": "web-server-01",
-    "cores": 4,
-    "ram": 8192,
-    "disk": 100,
-    "os": "Ubuntu 22.04 LTS",
-    "status": "STOPPED",
-    "createdAt": "2024-01-15T10:30:00",
-    "updatedAt": "2024-01-15T10:30:00"
-  },
-  "timestamp": "2024-01-15T10:30:00"
-}
+El estado inicial es **`STOPPED`**. Para cambiar estado u otros campos, usa **`PUT /vms/{id}`** (incluye `status`: `RUNNING` \| `STOPPED` \| `PAUSED`).
+
+Las respuestas de listado/detalle van envueltas en **`ApiResponse`** (`success`, `message`, `data`, `timestamp`).
+
+---
+
+## Errores HTTP
+
+Las respuestas de error siguen un JSON uniforme (`timestamp`, `status`, `error`, `message`, `path`). Códigos habituales: **401** no autenticado, **403** sin rol, **404** recurso no encontrado, **422** validación.
+
+---
+
+## Arquitectura hexagonal
+
+Las dependencias van **hacia el dominio**. La infraestructura implementa puertos de salida (repositorios, eventos, seguridad); los casos de uso implementan puertos de entrada.
+
+```
+domain/           → modelos y contratos (ports)
+application/      → DTOs + implementación de casos de uso
+infrastructure/   → REST, WebSocket, R2DBC, Security, config, excepciones
+```
+
+Árbol principal:
+
+```
+src/main/java/com/ifx/vm_manager/
+├── domain/model|ports
+├── application/dto|usecases
+└── infrastructure/adapters/input/rest|websocket
+                              └──output/persistence|security
+                              config|exceptions
 ```
 
 ---
 
-## Usuarios Seed
+## Seguridad (JWT en cookie)
 
-El sistema crea automáticamente los siguientes usuarios al iniciar por primera vez:
+1. `POST /login` valida credenciales (BCrypt).
+2. Se genera JWT y se envía como **`Set-Cookie`** (`HttpOnly`, `SameSite` configurable, `Secure` según `APP_COOKIE_SECURE`).
+3. Las peticiones siguientes envían la cookie; **`JwtSecurityContextRepository`** reconstruye el contexto y los roles (`ROLE_ADMIN`, `ROLE_CLIENT`).
 
-| Nombre      | Email             | Password    | Rol    |
-|-------------|-------------------|-------------|--------|
-| Admin User  | admin@test.com    | `123456`    | ADMIN  |
-| Client User | client@test.com   | `client123` | CLIENT |
-
----
-
-## Manejo de Errores
-
-Todas las respuestas de error siguen el formato:
-
-```json
-{
-  "timestamp": "2024-01-15T10:30:00",
-  "status": 404,
-  "error": "NOT_FOUND",
-  "message": "VM not found with id: 99",
-  "path": "/vms/99"
-}
-```
-
-| Código | Error               | Situación                           |
-|--------|---------------------|-------------------------------------|
-| 400    | BAD_REQUEST         | Datos de negocio inválidos          |
-| 401    | UNAUTHORIZED        | Token ausente, inválido o expirado  |
-| 403    | FORBIDDEN           | Rol insuficiente                    |
-| 404    | NOT_FOUND           | Recurso no encontrado               |
-| 422    | VALIDATION_ERROR    | Fallo de validación de campos       |
-| 500    | INTERNAL_SERVER_ERROR | Error interno del servidor        |
+Ventaja frente a `localStorage`: reduce superficie ante XSS en el token; combinar con HTTPS y CORS acotado en producción.
 
 ---
 
-## Estructura del Proyecto
+## WebSocket
+
+- **URL:** `ws://<host>:8080/ws/vms`
+- **Eventos:** `VM_CREATED`, `VM_UPDATED`, `VM_DELETED`, `VM_STATUS_CHANGED`
+- Implementación **nativa WebFlux** (`WebSocketHandler` + `Sinks`), acorde a Netty (sin stack Servlet/STOMP).
+
+---
+
+## Estructura del repositorio
 
 ```
 ifx-virtual-machine-manager-backend/
-├── src/
-│   └── main/
-│       ├── java/com/ifx/vm_manager/
-│       │   ├── VmManagerApplication.java
-│       │   ├── domain/
-│       │   ├── application/
-│       │   └── infrastructure/
-│       └── resources/
-│           ├── application.yml
-│           └── db/
-│               └── schema.sql
-├── build.gradle
+├── src/main/java/...          # Código de producción
+├── src/main/resources/
+│   ├── application.yml
+│   └── db/schema.sql
+├── src/test/java/...          # Pruebas unitarias (por paquete, espejo del código)
+├── build.gradle               # Gradle + JaCoCo
 ├── docker-compose.yml
 ├── Dockerfile
 └── README.md
 ```
+
+---
+
+## Licencia y uso
+
+Yeison Rua - Proyecto orientado a **demo técnica.** 
